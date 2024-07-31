@@ -4,6 +4,7 @@ import pg from "pg";
 import bcrypt from "bcrypt";
 import session from "express-session";
 import passport from "passport";
+import GoogleStrategy from "passport-google-oauth2";
 import { Strategy } from "passport-local";
 import env from "dotenv";
 
@@ -56,6 +57,25 @@ app.get("/register", (req, res) => {
   res.render("register.ejs");
 });
 
+app.get("/auth/google",passport.authenticate("google",{
+  scope: ["profile","email"],
+}));
+
+app.get("/auth/google/secrets",passport.authenticate("google",{
+  successRedirect : "/secrets",
+  failureRedirect: "/login"
+}));
+
+app.get("/logout",(req,res) => {
+  req.logout((err)=>{
+    if(err){
+      console.log(err);
+    }else{
+      res.redirect("/");
+    }
+  });
+});
+
 
 
 app.post("/register", async (req, res) => {
@@ -84,7 +104,9 @@ app.post("/login", passport.authenticate("local",{
   failureRedirect: "/login"
 }));
 
-passport.use(new Strategy(async function verify(username,password,cb){
+passport.use(
+  "local",
+  new Strategy(async function verify(username,password,cb){
   var entry = null;
   
   try{
@@ -113,6 +135,27 @@ passport.use(new Strategy(async function verify(username,password,cb){
     return cb("User not found")
   }
 }))
+
+passport.use("google",new GoogleStrategy({
+  clientID : process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: "http://localhost:3000/auth/google/secrets",
+  userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+}, async (accessToken,refreshToken, profile, cb) => { 
+  console.log(profile);
+  try{
+    const result = await db.query("SELECT * FROM users WHERE email=$1",[profile.email]);
+    if(result.rowCount === 0){
+      const newUser = await db.query("INSERT INTO users (email,password) VALUES ($1,$2)",[profile.email,"jethiya"]);
+      cb(null, newUser.rows[0]);
+    }else{
+      cb(null,result.rows[0]);
+    }
+  }catch(err){
+    cb(err);
+  }
+ })
+);
 
 passport.serializeUser((user,cb) => {
   cb(null,user);
